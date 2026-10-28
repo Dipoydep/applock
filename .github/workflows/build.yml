@@ -1,102 +1,122 @@
 name: Build AppLock APK
 
 on:
-push:
-branches: [ main ]
-workflow_dispatch:
-
-permissions:
-contents: read
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-24.04
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout kode
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout kode
+        uses: actions/checkout@v4
 
-  - name: Setup Java 17
-    uses: actions/setup-java@v4
-    with:
-      java-version: '17'
-      distribution: temurin
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-  - name: Install ImageMagick
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y imagemagick
-      convert -version
+      - name: Setup Python untuk generate icon
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-  - name: Generate launcher icons
-    shell: bash
-    run: |
-      set -euo pipefail
+      - name: Install Pillow
+        run: pip install Pillow
 
-      if [ ! -f icon.png ]; then
-        echo "icon.png tidak ditemukan, membuat ikon default..."
-        convert -size 1024x1024 xc:'#6C63FF' \
-          -fill white \
-          -draw "roundrectangle 212,212 812,812 80,80" \
-          -fill '#6C63FF' \
-          -draw "rectangle 380,280 644,480" \
-          -fill white \
-          -draw "roundrectangle 350,430 674,780 40,40" \
-          -draw "circle 512,610 512,660" \
-          icon.png
-      fi
+      - name: Generate semua ukuran launcher icon dari icon.png
+        run: |
+          python3 << 'PYEOF'
+          from PIL import Image
+          import os, math
 
-      declare -A SIZES=(
-        [mdpi]=48
-        [hdpi]=72
-        [xhdpi]=96
-        [xxhdpi]=144
-        [xxxhdpi]=192
-      )
+          sizes = {
+              "mdpi":     48,
+              "hdpi":     72,
+              "xhdpi":    96,
+              "xxhdpi":   144,
+              "xxxhdpi":  192,
+          }
 
-      for DENSITY in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-        SIZE="${SIZES[$DENSITY]}"
-        DIR="app/src/main/res/mipmap-${DENSITY}"
-        mkdir -p "$DIR"
+          # Buat icon default kalau icon.png tidak ada
+          if not os.path.exists("icon.png"):
+              print("icon.png tidak ada, buat default...")
+              size = 1024
+              img = Image.new("RGBA", (size, size), (108, 99, 255, 255))
+              # Lingkaran putih di tengah sebagai placeholder
+              from PIL import ImageDraw
+              draw = ImageDraw.Draw(img)
+              # Body gembok
+              draw.rounded_rectangle([280, 480, 744, 800], radius=60, fill="white")
+              # Lengkungan atas
+              draw.arc([340, 220, 684, 560], start=200, end=340, fill="white", width=80)
+              # Lubang kunci
+              draw.ellipse([462, 570, 562, 670], fill=(108, 99, 255, 255))
+              draw.rectangle([492, 630, 532, 720], fill=(108, 99, 255, 255))
+              img.save("icon.png")
+              print("Default icon dibuat!")
 
-        convert icon.png -resize "${SIZE}x${SIZE}" \
-          \( +clone -alpha extract \
-            -draw "fill black rectangle 0,0 ${SIZE},${SIZE}" \
-            -draw "fill white roundrectangle 0,0 ${SIZE},${SIZE} $((SIZE/5)),$((SIZE/5))" \
-          \) -compose CopyOpacity -composite \
-          "${DIR}/ic_launcher.png"
+          src = Image.open("icon.png").convert("RGBA")
 
-        convert icon.png -resize "${SIZE}x${SIZE}" \
-          \( +clone -alpha extract \
-            -draw "fill black rectangle 0,0 ${SIZE},${SIZE}" \
-            -draw "fill white circle $((SIZE/2)),$((SIZE/2)) $((SIZE/2)),0" \
-          \) -compose CopyOpacity -composite \
-          "${DIR}/ic_launcher_round.png"
+          for density, px in sizes.items():
+              out_dir = f"app/src/main/res/mipmap-{density}"
+              os.makedirs(out_dir, exist_ok=True)
 
-        echo "Generated ${DENSITY}: ${SIZE}x${SIZE}"
-      done
+              # Resize
+              resized = src.resize((px, px), Image.LANCZOS)
 
-      echo "Launcher icons selesai dibuat."
+              # ic_launcher — rounded corners
+              mask = Image.new("L", (px, px), 0)
+              from PIL import ImageDraw
+              d = ImageDraw.Draw(mask)
+              r = px // 5
+              d.rounded_rectangle([0, 0, px-1, px-1], radius=r, fill=255)
+              out = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+              out.paste(resized, mask=mask)
+              out.save(f"{out_dir}/ic_launcher.png")
 
-  - name: Periksa file proyek
-    run: |
-      test -f settings.gradle
-      test -f build.gradle
-      test -f app/build.gradle
-      test -f app/src/main/AndroidManifest.xml
+              # ic_launcher_round — circle
+              mask2 = Image.new("L", (px, px), 0)
+              d2 = ImageDraw.Draw(mask2)
+              d2.ellipse([0, 0, px-1, px-1], fill=255)
+              out2 = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+              out2.paste(resized, mask=mask2)
+              out2.save(f"{out_dir}/ic_launcher_round.png")
 
-  - name: Setup Gradle 8.2
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.2'
+              print(f"Generated {density} ({px}x{px})")
 
-  - name: Build Debug APK
-    run: gradle assembleDebug --no-daemon --stacktrace
+          print("Semua icon berhasil digenerate!")
+          PYEOF
 
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: AppLock-debug-apk
-      path: app/build/outputs/apk/debug/app-debug.apk
-      if-no-files-found: error
-      retention-days: 30
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Izin execute gradlew
+        run: chmod +x gradlew
+
+      - name: Download Gradle wrapper jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -Lo gradle/wrapper/gradle-wrapper.jar \
+            https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppLock-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+          
