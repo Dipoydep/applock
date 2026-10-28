@@ -19,6 +19,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.2'
+
       - name: Setup Python untuk generate icon
         uses: actions/setup-python@v5
         with:
@@ -30,30 +35,24 @@ jobs:
       - name: Generate semua ukuran launcher icon dari icon.png
         run: |
           python3 << 'PYEOF'
-          from PIL import Image
-          import os, math
+          from PIL import Image, ImageDraw
+          import os
 
           sizes = {
-              "mdpi":     48,
-              "hdpi":     72,
-              "xhdpi":    96,
-              "xxhdpi":   144,
-              "xxxhdpi":  192,
+              "mdpi":    48,
+              "hdpi":    72,
+              "xhdpi":   96,
+              "xxhdpi":  144,
+              "xxxhdpi": 192,
           }
 
-          # Buat icon default kalau icon.png tidak ada
           if not os.path.exists("icon.png"):
               print("icon.png tidak ada, buat default...")
               size = 1024
               img = Image.new("RGBA", (size, size), (108, 99, 255, 255))
-              # Lingkaran putih di tengah sebagai placeholder
-              from PIL import ImageDraw
               draw = ImageDraw.Draw(img)
-              # Body gembok
               draw.rounded_rectangle([280, 480, 744, 800], radius=60, fill="white")
-              # Lengkungan atas
               draw.arc([340, 220, 684, 560], start=200, end=340, fill="white", width=80)
-              # Lubang kunci
               draw.ellipse([462, 570, 562, 670], fill=(108, 99, 255, 255))
               draw.rectangle([492, 630, 532, 720], fill=(108, 99, 255, 255))
               img.save("icon.png")
@@ -65,30 +64,25 @@ jobs:
               out_dir = f"app/src/main/res/mipmap-{density}"
               os.makedirs(out_dir, exist_ok=True)
 
-              # Resize
               resized = src.resize((px, px), Image.LANCZOS)
 
-              # ic_launcher — rounded corners
+              # Rounded corners
               mask = Image.new("L", (px, px), 0)
-              from PIL import ImageDraw
-              d = ImageDraw.Draw(mask)
-              r = px // 5
-              d.rounded_rectangle([0, 0, px-1, px-1], radius=r, fill=255)
-              out = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+              ImageDraw.Draw(mask).rounded_rectangle([0, 0, px-1, px-1], radius=px//5, fill=255)
+              out = Image.new("RGBA", (px, px), (0,0,0,0))
               out.paste(resized, mask=mask)
               out.save(f"{out_dir}/ic_launcher.png")
 
-              # ic_launcher_round — circle
+              # Circle
               mask2 = Image.new("L", (px, px), 0)
-              d2 = ImageDraw.Draw(mask2)
-              d2.ellipse([0, 0, px-1, px-1], fill=255)
-              out2 = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+              ImageDraw.Draw(mask2).ellipse([0, 0, px-1, px-1], fill=255)
+              out2 = Image.new("RGBA", (px, px), (0,0,0,0))
               out2.paste(resized, mask=mask2)
               out2.save(f"{out_dir}/ic_launcher_round.png")
 
               print(f"Generated {density} ({px}x{px})")
 
-          print("Semua icon berhasil digenerate!")
+          print("Semua icon berhasil!")
           PYEOF
 
       - name: Cache Gradle
@@ -101,17 +95,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Izin execute gradlew
-        run: chmod +x gradlew
-
-      - name: Download Gradle wrapper jar
-        run: |
-          mkdir -p gradle/wrapper
-          curl -Lo gradle/wrapper/gradle-wrapper.jar \
-            https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
