@@ -79,7 +79,7 @@ fun HomeScreen(
             }
         }
 
-        HorizontalDivider(color = Color(0xFF1C1C1E), thickness = 1.dp)
+        Divider(color = Color(0xFF1C1C1E), thickness = 1.dp)
 
         // Status toggle card
         Card(
