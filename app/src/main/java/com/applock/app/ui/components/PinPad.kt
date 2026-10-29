@@ -6,7 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +15,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.offset
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -109,7 +108,7 @@ fun PinPad(
                                 modifier = Modifier.size(72.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Backspace,
+                                    imageVector = Icons.Filled.Backspace,
                                     contentDescription = "Hapus",
                                     tint = TextGray,
                                     modifier = Modifier.size(24.dp)
