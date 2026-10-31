@@ -48,6 +48,11 @@ class AppLockService : Service() {
         handler.post(checker)
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Minta Android membuat ulang service jika proses dihentikan oleh sistem.
+        return START_STICKY
+    }
+
     private suspend fun checkAndLock() {
         val now       = System.currentTimeMillis()
         val stats     = usageManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 3000, now)
