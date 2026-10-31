@@ -1,6 +1,9 @@
 package com.applock.app.ui.screens
 
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.IBinder
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -22,9 +25,16 @@ class LockActivity : ComponentActivity() {
         val appName    = intent.getStringExtra(EXTRA_APP_NAME) ?: "App"
         val pinManager = PinManager(this)
 
-        // Disable back — user wajib masukkan PIN
+        // Tidak bisa bypass dengan tombol back
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() { /* tidak bisa bypass */ }
+            override fun handleOnBackPressed() {
+                // Bawa user ke home screen daripada ke app yang dikunci
+                val home = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                    addCategory(android.content.Intent.CATEGORY_HOME)
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(home)
+            }
         })
 
         setContent {
@@ -32,7 +42,9 @@ class LockActivity : ComponentActivity() {
                 VerifyPinScreen(
                     pinManager = pinManager,
                     appName    = appName,
-                    onVerified = { finish() }
+                    onVerified = {
+                        finish()
+                    }
                 )
             }
         }
