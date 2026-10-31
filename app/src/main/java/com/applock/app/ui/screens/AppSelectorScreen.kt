@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +45,7 @@ fun AppSelectorScreen(
     var lockedApps by remember { mutableStateOf<Set<String>>(emptySet()) }
     var query      by remember { mutableStateOf("") }
     var isLoading  by remember { mutableStateOf(true) }
+    var loadError  by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         pinManager.getLockedApps().collectLatest { lockedApps = it }
@@ -50,31 +53,53 @@ fun AppSelectorScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            val pm = activity.packageManager
-            val list = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 }
-                .filter { it.packageName != activity.packageName }
-                .map { info ->
-                    AppInfo(
-                        packageName = info.packageName,
-                        appName     = pm.getApplicationLabel(info).toString(),
-                        icon        = pm.getApplicationIcon(info.packageName)
-                    )
-                }.sortedBy { it.appName }
-            withContext(Dispatchers.Main) {
-                apps = list
-                isLoading = false
+            try {
+                val pm = activity.packageManager
+                // Pakai MATCH_ALL supaya semua app user terdeteksi
+                val flags = PackageManager.GET_META_DATA
+                val list = pm.getInstalledApplications(flags)
+                    .filter { info ->
+                        // Hanya app yang punya launcher (bisa dibuka user)
+                        val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                        val isUpdatedSystem = (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                        val launchIntent = pm.getLaunchIntentForPackage(info.packageName)
+                        (!isSystem || isUpdatedSystem) &&
+                        launchIntent != null &&
+                        info.packageName != activity.packageName
+                    }
+                    .map { info ->
+                        AppInfo(
+                            packageName = info.packageName,
+                            appName     = pm.getApplicationLabel(info).toString(),
+                            icon        = pm.getApplicationIcon(info.packageName)
+                        )
+                    }
+                    .sortedBy { it.appName.lowercase() }
+
+                withContext(Dispatchers.Main) {
+                    apps = list
+                    isLoading = false
+                    if (list.isEmpty()) loadError = "Tidak ada app yang ditemukan"
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    isLoading = false
+                    loadError = "Gagal memuat: ${e.message}"
+                }
             }
         }
     }
 
-    val filtered = apps.filter { it.appName.contains(query, ignoreCase = true) }
+    val filtered = if (query.isEmpty()) apps
+                   else apps.filter { it.appName.contains(query, ignoreCase = true) }
 
     Scaffold(
         containerColor = Color(0xFF000000),
         topBar = {
             TopAppBar(
-                title = { Text("Pilih App", fontWeight = FontWeight.SemiBold, color = Color(0xFFE5E5E5)) },
+                title = {
+                    Text("Pilih App", fontWeight = FontWeight.SemiBold, color = Color(0xFFE5E5E5))
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Kembali", tint = Color(0xFFE5E5E5))
@@ -85,6 +110,7 @@ fun AppSelectorScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -104,33 +130,45 @@ fun AppSelectorScreen(
                 )
             )
 
-            if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color(0xFFFF5C35))
-                        Spacer(Modifier.height(12.dp))
-                        Text("Memuat daftar app...", color = Color(0xFF666666), fontSize = 13.sp)
+            when {
+                isLoading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color(0xFFFF5C35))
+                            Spacer(Modifier.height(12.dp))
+                            Text("Memuat daftar app...", color = Color(0xFF666666), fontSize = 13.sp)
+                        }
                     }
                 }
-            } else {
-                Text(
-                    "${lockedApps.size} dari ${apps.size} app terkunci",
-                    fontSize = 11.sp,
-                    color = Color(0xFF666666),
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filtered, key = { it.packageName }) { app ->
-                        val isLocked = lockedApps.contains(app.packageName)
-                        AppRow(app = app, isLocked = isLocked, onToggle = {
-                            scope.launch {
-                                if (isLocked) pinManager.removeLockedApp(app.packageName)
-                                else pinManager.addLockedApp(app.packageName)
-                            }
-                        })
+                loadError.isNotEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(loadError, color = Color(0xFFFF453A), fontSize = 13.sp)
+                    }
+                }
+                else -> {
+                    Text(
+                        "${lockedApps.size} dari ${apps.size} app terkunci",
+                        fontSize = 11.sp,
+                        color = Color(0xFF666666),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                    LazyColumn(
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filtered, key = { it.packageName }) { app ->
+                            val isLocked = lockedApps.contains(app.packageName)
+                            AppRow(
+                                app      = app,
+                                isLocked = isLocked,
+                                onToggle = {
+                                    scope.launch {
+                                        if (isLocked) pinManager.removeLockedApp(app.packageName)
+                                        else pinManager.addLockedApp(app.packageName)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -160,11 +198,14 @@ private fun AppRow(app: AppInfo, isLocked: Boolean, onToggle: () -> Unit) {
         } else {
             Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF2C2C2E)))
         }
+
         Spacer(Modifier.width(14.dp))
+
         Column(Modifier.weight(1f)) {
             Text(app.appName, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = Color(0xFFE5E5E5), maxLines = 1)
             Text(app.packageName, fontSize = 10.sp, color = Color(0xFF3A3A3A), maxLines = 1)
         }
+
         Switch(
             checked = isLocked,
             onCheckedChange = { onToggle() },
