@@ -59,11 +59,9 @@ fun AppSelectorScreen(
                 val flags = PackageManager.GET_META_DATA
                 val list = pm.getInstalledApplications(flags)
                     .filter { info ->
-                        // Hanya app yang punya launcher (bisa dibuka user)
-                        val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                        val isUpdatedSystem = (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                        // Tampilkan semua aplikasi yang punya launcher,
+                        // termasuk aplikasi bawaan/system yang bisa dibuka pengguna.
                         val launchIntent = pm.getLaunchIntentForPackage(info.packageName)
-                        (!isSystem || isUpdatedSystem) &&
                         launchIntent != null &&
                         info.packageName != activity.packageName
                     }
