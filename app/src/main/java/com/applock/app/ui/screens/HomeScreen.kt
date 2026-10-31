@@ -1,6 +1,9 @@
 package com.applock.app.ui.screens
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.Application
+import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -13,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,7 +37,11 @@ fun HomeScreen(
     onNavigateToApps: () -> Unit
 ) {
     var lockedCount by remember { mutableStateOf(0) }
-    var serviceOn   by remember { mutableStateOf(false) }
+    var serviceOn   by remember {
+        mutableStateOf(isAppLockServiceRunning(activity) ||
+            activity.getSharedPreferences("applock_state", Activity.MODE_PRIVATE)
+                .getBoolean("protection_enabled", false))
+    }
     var hasUsage    by remember { mutableStateOf(false) }
     var hasOverlay  by remember { mutableStateOf(false) }
 
@@ -43,6 +51,39 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         hasUsage   = checkUsage(activity)
         hasOverlay = Settings.canDrawOverlays(activity)
+    }
+
+    // Sinkronkan switch setiap kali pengguna kembali ke AppLock.
+    // Jika perlindungan sebelumnya aktif tetapi service mati, hidupkan kembali.
+    DisposableEffect(activity) {
+        val callbacks = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(resumedActivity: Activity) {
+                if (resumedActivity !== activity) return
+
+                val prefs = activity.getSharedPreferences("applock_state", Activity.MODE_PRIVATE)
+                val shouldProtect = prefs.getBoolean("protection_enabled", false)
+                val running = isAppLockServiceRunning(activity)
+
+                if (shouldProtect && !running) {
+                    activity.startForegroundService(
+                        Intent(activity, AppLockService::class.java)
+                    )
+                }
+                serviceOn = shouldProtect || running
+            }
+
+            override fun onActivityCreated(a: Activity, state: Bundle?) {}
+            override fun onActivityStarted(a: Activity) {}
+            override fun onActivityPaused(a: Activity) {}
+            override fun onActivityStopped(a: Activity) {}
+            override fun onActivitySaveInstanceState(a: Activity, state: Bundle) {}
+            override fun onActivityDestroyed(a: Activity) {}
+        }
+
+        activity.application.registerActivityLifecycleCallbacks(callbacks)
+        onDispose {
+            activity.application.unregisterActivityLifecycleCallbacks(callbacks)
+        }
     }
 
     Column(
@@ -129,10 +170,14 @@ fun HomeScreen(
                                     Uri.parse("package:${activity.packageName}")
                                 ))
                             } else {
+                                activity.getSharedPreferences("applock_state", Activity.MODE_PRIVATE)
+                                    .edit().putBoolean("protection_enabled", true).apply()
                                 activity.startForegroundService(Intent(activity, AppLockService::class.java))
                                 serviceOn = true
                             }
                         } else {
+                            activity.getSharedPreferences("applock_state", Activity.MODE_PRIVATE)
+                                .edit().putBoolean("protection_enabled", false).apply()
                             activity.stopService(Intent(activity, AppLockService::class.java))
                             serviceOn = false
                         }
@@ -241,3 +286,16 @@ private fun checkUsage(activity: Activity): Boolean = try {
         android.os.Process.myUid(), activity.packageName
     ) == android.app.AppOpsManager.MODE_ALLOWED
 } catch (e: Exception) { false }
+
+
+private fun isAppLockServiceRunning(activity: Activity): Boolean {
+    return try {
+        val manager = activity.getSystemService(Activity.ACTIVITY_SERVICE) as ActivityManager
+        @Suppress("DEPRECATION")
+        manager.getRunningServices(Int.MAX_VALUE).any {
+            it.service.className == AppLockService::class.java.name
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
