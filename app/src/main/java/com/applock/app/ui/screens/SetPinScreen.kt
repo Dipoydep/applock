@@ -1,6 +1,5 @@
 package com.applock.app.ui.screens
 
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,10 +14,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.applock.app.R
 import com.applock.app.data.PinManager
 import com.applock.app.ui.components.PinDots
 import com.applock.app.ui.components.PinPad
@@ -26,14 +27,13 @@ import com.applock.app.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-// Stage: CREATE → CONFIRM → DONE
 private enum class Stage { CREATE, CONFIRM, DONE }
 
 @Composable
 fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var stage   by remember { mutableStateOf(Stage.CREATE) }
-    var pin     by remember { mutableStateOf("") }
+    var stage    by remember { mutableStateOf(Stage.CREATE) }
+    var pin      by remember { mutableStateOf("") }
     var firstPin by remember { mutableStateOf("") }
     var subText  by remember { mutableStateOf("Masukan 6 digit PIN baru") }
     var subError by remember { mutableStateOf(false) }
@@ -44,16 +44,14 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
     val isConfirm = stage == Stage.CONFIRM
     val dotColor  = if (isConfirm) OrangeConfirm else OrangeAccent
 
-    // Animasi overlay sukses
     val successAlpha by animateFloatAsState(
         targetValue = if (showSuccess) 1f else 0f,
-        animationSpec = tween(300),
-        label = "success_alpha"
+        animationSpec = tween(300), label = "alpha"
     )
     val successScale by animateFloatAsState(
         targetValue = if (showSuccess) 1f else 0.6f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "success_scale"
+        label = "scale"
     )
 
     fun handleComplete() {
@@ -95,31 +93,24 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgBlack)
-    ) {
-        // Konten utama
+    Box(modifier = Modifier.fillMaxSize().background(BgBlack)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Ikon gembok
+            // Icon gembok SVG
             Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceDark2),
+                modifier = Modifier.size(56.dp).clip(CircleShape).background(SurfaceDark2),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = if (stage == Stage.DONE) "✓" else "🔒",
-                    fontSize = 22.sp,
-                    color = if (stage == Stage.DONE) GreenSuccess else OrangeAccent
+                Icon(
+                    painter = painterResource(
+                        if (stage == Stage.DONE) R.drawable.ic_check_circle else R.drawable.ic_lock
+                    ),
+                    contentDescription = null,
+                    tint = if (stage == Stage.DONE) GreenSuccess else OrangeAccent,
+                    modifier = Modifier.size(26.dp)
                 )
             }
 
@@ -127,10 +118,8 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
 
             Text(
                 text = if (stage == Stage.CONFIRM) "Konfirmasi PIN" else "Buat PIN Privasi",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextPrimary,
-                letterSpacing = 0.2.sp
+                fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                color = TextPrimary, letterSpacing = 0.2.sp
             )
 
             Spacer(Modifier.height(6.dp))
@@ -144,24 +133,18 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
 
             Spacer(Modifier.height(40.dp))
 
-            // Titik PIN
-            PinDots(
-                pin = pin,
-                shake = shake,
-                filledColor = dotColor
-            )
+            PinDots(pin = pin, shake = shake, filledColor = dotColor)
 
             Spacer(Modifier.height(48.dp))
 
-            // Numpad
             PinPad(
                 pin = pin,
                 onPinChange = { newPin ->
                     if (!locked) {
                         pin = newPin
                         subError = false
-                        if (!isConfirm) subText = "Masukan 6 digit PIN baru"
-                        else subText = "Ulangi PIN untuk konfirmasi"
+                        subText = if (!isConfirm) "Masukan 6 digit PIN baru"
+                                  else "Ulangi PIN untuk konfirmasi"
                         if (newPin.length == 6) handleComplete()
                     }
                 }
@@ -169,24 +152,16 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
 
             Spacer(Modifier.height(36.dp))
 
-            // Step indicator — 2 bar
+            // Step indicator
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(2) { i ->
                     val isActive = (i == 0 && stage == Stage.CREATE) || (i == 1 && stage == Stage.CONFIRM)
-                    val isDone   = (i == 0 && (stage == Stage.CONFIRM || stage == Stage.DONE)) ||
-                                   (i == 1 && stage == Stage.DONE)
+                    val isDone   = (i == 0 && stage != Stage.CREATE) || (i == 1 && stage == Stage.DONE)
                     Box(
                         modifier = Modifier
-                            .width(28.dp)
-                            .height(3.dp)
+                            .width(28.dp).height(3.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(
-                                when {
-                                    isDone   -> GreenSuccess
-                                    isActive -> OrangeAccent
-                                    else     -> Color(0xFF2C2C2E)
-                                }
-                            )
+                            .background(when { isDone -> GreenSuccess; isActive -> OrangeAccent; else -> Color(0xFF2C2C2E) })
                     )
                 }
             }
@@ -194,33 +169,31 @@ fun SetPinScreen(pinManager: PinManager, onPinSet: () -> Unit) {
             Spacer(Modifier.height(24.dp))
 
             Text(
-                text = "PIN ini akan digunakan setiap kali membuka aplikasi",
-                fontSize = 11.sp,
-                color = Color(0xFF4A4A4E),
-                textAlign = TextAlign.Center
+                "PIN ini digunakan setiap kali membuka aplikasi",
+                fontSize = 11.sp, color = Color(0xFF4A4A4E), textAlign = TextAlign.Center
             )
         }
 
         // Overlay sukses
         if (showSuccess) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(successAlpha)
-                    .background(BgBlack),
+                modifier = Modifier.fillMaxSize().alpha(successAlpha).background(BgBlack),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .scale(successScale)
-                            .size(56.dp)
-                            .clip(CircleShape)
+                            .scale(successScale).size(56.dp).clip(CircleShape)
                             .background(GreenSuccess.copy(alpha = 0.15f))
                             .border(2.dp, GreenSuccess, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("✓", fontSize = 26.sp, color = GreenSuccess)
+                        Icon(
+                            painter = painterResource(R.drawable.ic_check_circle),
+                            contentDescription = null,
+                            tint = GreenSuccess,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                     Spacer(Modifier.height(16.dp))
                     Text("PIN berhasil dibuat", fontSize = 14.sp, color = TextGray)
