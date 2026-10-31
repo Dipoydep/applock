@@ -17,9 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.applock.app.R
 import com.applock.app.data.PinManager
 import com.applock.app.service.AppLockService
 import kotlinx.coroutines.flow.collectLatest
@@ -60,7 +62,14 @@ fun HomeScreen(
                     .background(Color(0xFF141414))
                     .border(1.dp, Color(0xFF2C2C2E), CircleShape),
                 contentAlignment = Alignment.Center
-            ) { Text("🔒", fontSize = 20.sp) }
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_lock),
+                    contentDescription = null,
+                    tint = Color(0xFFFF5C35),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Column {
                 Text("AppLock", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE5E5E5))
@@ -84,9 +93,19 @@ fun HomeScreen(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(if (serviceOn) Color(0xFFFF5C35).copy(alpha = 0.15f) else Color(0xFF1C1C1E)),
+                        .background(
+                            if (serviceOn) Color(0xFFFF5C35).copy(alpha = 0.15f)
+                            else Color(0xFF1C1C1E)
+                        ),
                     contentAlignment = Alignment.Center
-                ) { Text(if (serviceOn) "🛡️" else "🔓", fontSize = 20.sp) }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_shield),
+                        contentDescription = null,
+                        tint = if (serviceOn) Color(0xFFFF5C35) else Color(0xFF666666),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -130,12 +149,12 @@ fun HomeScreen(
 
         // Warning izin
         if (!hasUsage) PermissionBanner(
-            emoji = "⚠️", title = "Izin Usage Access",
+            title = "Izin Usage Access",
             desc  = "Dibutuhkan untuk mendeteksi app aktif"
         ) { activity.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
 
         if (!hasOverlay) PermissionBanner(
-            emoji = "⚠️", title = "Izin Overlay",
+            title = "Izin Overlay",
             desc  = "Dibutuhkan untuk tampilkan layar PIN"
         ) {
             activity.startActivity(Intent(
@@ -150,7 +169,11 @@ fun HomeScreen(
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5C35), contentColor = Color.White)
         ) {
-            Text("📱", fontSize = 18.sp)
+            Icon(
+                painter = painterResource(R.drawable.ic_apps),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
             Spacer(Modifier.width(10.dp))
             Text("Pilih App yang Dikunci", fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
@@ -174,14 +197,19 @@ fun HomeScreen(
 }
 
 @Composable
-private fun PermissionBanner(emoji: String, title: String, desc: String, onClick: () -> Unit) {
+private fun PermissionBanner(title: String, desc: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1010))
     ) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(emoji, fontSize = 18.sp)
+            Icon(
+                painter = painterResource(R.drawable.ic_warning),
+                contentDescription = null,
+                tint = Color(0xFFFF453A),
+                modifier = Modifier.size(20.dp)
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFFFF453A))
