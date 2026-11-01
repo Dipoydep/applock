@@ -2,8 +2,10 @@ package com.applock.app.service
 
 import android.app.*
 import android.app.usage.UsageStatsManager
+import android.app.usage.UsageEvents
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -13,76 +15,119 @@ import com.applock.app.data.PinManager
 import com.applock.app.ui.screens.LockActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AppLockService : Service() {
 
     companion object {
-        private const val CHANNEL_ID    = "applock_channel"
-        private const val NOTIF_ID      = 1001
-        private const val CHECK_MS      = 300L  // lebih cepat = lebih responsive
+        private const val CHANNEL_ID = "applock_channel"
+        private const val NOTIF_ID = 1001
+        private const val CHECK_MS = 300L
+        private const val EVENT_LOOKBACK_MS = 10_000L
     }
 
-    private val scope   = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
+    private val checkRunning = AtomicBoolean(false)
+
     private lateinit var pinManager: PinManager
     private lateinit var usageManager: UsageStatsManager
 
-    // Track state biar tidak spam launch LockActivity
-    private var lastForeground  = ""
-    private var lastLocked      = ""
-    private var isShowingLock   = false
+    private var lastForeground = ""
+    private var isShowingLock = false
 
     private val checker = object : Runnable {
         override fun run() {
-            scope.launch { checkAndLock() }
+            if (checkRunning.compareAndSet(false, true)) {
+                scope.launch {
+                    try {
+                        checkAndLock()
+                    } finally {
+                        checkRunning.set(false)
+                    }
+                }
+            }
             handler.postDelayed(this, CHECK_MS)
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        pinManager   = PinManager(this)
+        pinManager = PinManager(this)
         usageManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         createChannel()
         startForeground(NOTIF_ID, buildNotif())
+        handler.removeCallbacks(checker)
         handler.post(checker)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Minta Android membuat ulang service jika proses dihentikan oleh sistem.
+        // Keep the monitoring service independent from the Activity/Recent Apps task.
         return START_STICKY
     }
 
-    private suspend fun checkAndLock() {
-        val now       = System.currentTimeMillis()
-        val stats     = usageManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 3000, now)
-        val current   = stats
-            ?.filter { it.lastTimeUsed > 0 && it.packageName != packageName }
-            ?.maxByOrNull { it.lastTimeUsed }
-            ?.packageName ?: return
-
-        // Reset flag kalau user sudah pindah app
-        if (current != lastForeground) {
-            lastForeground = current
-            isShowingLock  = false
-        }
-
-        // Jangan lock kalau sedang di lock screen atau app kita sendiri
-        if (current == packageName) return
-        if (current.startsWith("com.applock")) return
-
-        val locked = pinManager.getLockedApps().first()
-
-        if (locked.contains(current) && !isShowingLock) {
-            isShowingLock = true
-            lastLocked    = current
-            withContext(Dispatchers.Main) { showLock(current) }
-        }
+    /**
+     * Clear All in Recent Apps removes the Activity task, not the user's protection setting.
+     * The service is explicitly configured with stopWithTask=false in the manifest.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Do not stop the foreground service and do not clear protection state here.
     }
 
-    fun onUnlocked() {
-        // Dipanggil dari LockActivity setelah PIN benar
-        isShowingLock = false
+    private fun findForegroundPackage(now: Long): String? {
+        val events = usageManager.queryEvents(now - EVENT_LOOKBACK_MS, now)
+        val event = UsageEvents.Event()
+        var latestPackage: String? = null
+        var latestTime = 0L
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val isForegroundEvent =
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    event.eventType == UsageEvents.Event.ACTIVITY_RESUMED)
+
+            if (isForegroundEvent && event.timeStamp >= latestTime) {
+                latestTime = event.timeStamp
+                latestPackage = event.packageName
+            }
+        }
+
+        // Fallback for devices that do not return UsageEvents consistently.
+        if (latestPackage == null) {
+            val stats = usageManager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                now - EVENT_LOOKBACK_MS,
+                now
+            )
+            latestPackage = stats
+                ?.filter { it.lastTimeUsed > 0L && it.packageName != packageName }
+                ?.maxByOrNull { it.lastTimeUsed }
+                ?.packageName
+        }
+
+        return latestPackage
+    }
+
+    private suspend fun checkAndLock() {
+        val current = findForegroundPackage(System.currentTimeMillis()) ?: return
+
+        if (current != lastForeground) {
+            lastForeground = current
+            isShowingLock = false
+        }
+
+        // Ignore AppLock itself and its PIN screen.
+        if (current == packageName || current.startsWith("com.applock")) return
+
+        val locked = pinManager.getLockedApps().first()
+        if (locked.contains(current) && !isShowingLock) {
+            isShowingLock = true
+            withContext(Dispatchers.Main) {
+                showLock(current)
+            }
+        }
     }
 
     private fun showLock(pkg: String) {
@@ -90,7 +135,9 @@ class AppLockService : Service() {
             packageManager.getApplicationLabel(
                 packageManager.getApplicationInfo(pkg, 0)
             ).toString()
-        } catch (e: Exception) { pkg }
+        } catch (_: Exception) {
+            pkg
+        }
 
         startActivity(Intent(this, LockActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -100,11 +147,16 @@ class AppLockService : Service() {
     }
 
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL_ID, "AppLock", NotificationManager.IMPORTANCE_LOW).apply {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "AppLock",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
             description = "AppLock aktif di background"
             setShowBadge(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
     }
 
     private fun buildNotif() = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -116,9 +168,9 @@ class AppLockService : Service() {
         .build()
 
     override fun onDestroy() {
-        super.onDestroy()
         handler.removeCallbacks(checker)
         scope.cancel()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
